@@ -7,7 +7,7 @@ ARG BUILD_DATE
 ARG BUILD_VERSION=2.0.0
 
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -37,13 +37,19 @@ RUN echo "Cache bust: ${CACHEBUST} at $(date)" && \
 RUN pip install --user --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim AS production
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
-    PATH=/home/appuser/.local/bin:$PATH
+    PATH=/home/appuser/.local/bin:$PATH \
+    HOST=0.0.0.0 \
+    PORT=9090 \
+    WORKERS=1 \
+    LOG_LEVEL=info \
+    ENVIRONMENT=production \
+    VERSION=2.0.0
 
 # Install runtime system dependencies
 RUN apt-get update && apt-get install -y \
@@ -57,7 +63,7 @@ RUN apt-get update && apt-get install -y \
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Create directories
-RUN mkdir -p /app /tmp/audio_analysis /var/log/app /home/appuser/.local && \
+RUN mkdir -p /app /app/src /app/data /tmp/audio_analysis /var/log/app /home/appuser/.local && \
     chown -R appuser:appuser /app /tmp/audio_analysis /var/log/app /home/appuser
 
 # Copy Python dependencies from builder stage to appuser's local directory
@@ -67,40 +73,32 @@ RUN chown -R appuser:appuser /home/appuser/.local
 # Set working directory
 WORKDIR /app
 
-# Copy application code
-COPY --chown=appuser:appuser app/ app/
-COPY --chown=appuser:appuser main.py .
-COPY --chown=appuser:appuser env.example .env.example
+# Copy application code (using src/ directory structure)
+COPY --chown=appuser:appuser src/ src/
+COPY --chown=appuser:appuser requirements.txt .
 
 # Switch to non-root user
 USER appuser
 
 # Create startup script
-COPY --chown=appuser:appuser <<EOF /app/start.sh
-#!/bin/bash
-set -e
-
-# Print startup information
-echo "Starting Label Studio Audio Analysis Prediction API v${VERSION:-2.0.0}"
-echo "Environment: ${ENVIRONMENT:-production}"
-echo "Host: ${HOST:-0.0.0.0}"
-echo "Port: ${PORT:-9090}"
-
-# Health check for required environment variables
-if [ -z "\${GEMINI_API_KEY}" ]; then
-    echo "Error: GEMINI_API_KEY environment variable is required"
-    exit 1
-fi
-
-# Start the application
-exec python main.py \\
-    --host "${HOST:-0.0.0.0}" \\
-    --port "${PORT:-9090}" \\
-    --workers "${WORKERS:-1}" \\
-    --log-level "${LOG_LEVEL:-info}"
-EOF
-
-RUN chmod +x /app/start.sh
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Print startup information\n\
+echo "Starting Label Studio Audio Analysis Prediction API v${VERSION:-2.0.0}"\n\
+echo "Environment: ${ENVIRONMENT:-production}"\n\
+echo "Host: ${HOST:-0.0.0.0}"\n\
+echo "Port: ${PORT:-9090}"\n\
+\n\
+# Health check for required environment variables\n\
+if [ -z "${GEMINI_API_KEY}" ]; then\n\
+    echo "Error: GEMINI_API_KEY environment variable is required"\n\
+    exit 1\n\
+fi\n\
+\n\
+# Start the application\n\
+exec python src/enhanced_api.py\n\
+' > /app/start.sh && chmod +x /app/start.sh
 
 # Expose port
 EXPOSE 9090

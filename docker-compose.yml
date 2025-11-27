@@ -1,19 +1,89 @@
-# Docker Compose configuration for Label Studio Audio Analysis Prediction API
+# Docker Compose configuration for Label Studio with Audio Analysis ML Backend
 # 
 # This file provides a complete deployment setup including:
-# - Audio Analysis Prediction API
-# - Prometheus for metrics collection
-# - Redis for caching (optional)
+# - Label Studio (main annotation platform)
+# - PostgreSQL database (for data safety)
+# - Audio Analysis Prediction API (ML Backend)
+# - Automated Backup Service
+# - Optional: Prometheus, Redis, Grafana
 #
 # Usage:
-#   docker-compose up -d              # Start all services
-#   docker-compose logs -f api        # View API logs
-#   docker-compose down               # Stop all services
+#   docker compose up -d              # Start all services
+#   docker compose logs -f            # View all logs
+#   docker compose down               # Stop all services
 
 # version: '3.8'
 
 services:
-  # Main Audio Analysis API
+  # ==========================================================================
+  # LABEL STUDIO - Main Annotation Platform
+  # ==========================================================================
+  label-studio:
+    image: heartexlabs/label-studio:latest
+    container_name: label-studio
+    restart: unless-stopped
+    ports:
+      - "${LABEL_STUDIO_PORT:-8080}:8080"
+    environment:
+      # Database configuration (PostgreSQL for data safety)
+      - DJANGO_DB=default
+      - POSTGRE_NAME=labelstudio
+      - POSTGRE_USER=labelstudio
+      - POSTGRE_PASSWORD=${POSTGRES_PASSWORD:-labelstudio_secure_password}
+      - POSTGRE_HOST=postgres
+      - POSTGRE_PORT=5432
+      # Label Studio settings
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/data/files
+      # ML Backend connection
+      - ML_BACKENDS=default:http://labelstudio-audio-api:9090
+      # Security
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=false
+      - LABEL_STUDIO_USERNAME=${LABEL_STUDIO_USERNAME:-admin@admin.com}
+      - LABEL_STUDIO_PASSWORD=${LABEL_STUDIO_PASSWORD:-admin123}
+    volumes:
+      # CRITICAL: All Label Studio data stored in persistent volume
+      - labelstudio_data:/label-studio/data
+      # Shared upload folder for audio files
+      - labelstudio_files:/label-studio/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - audio-analysis-network
+
+  # ==========================================================================
+  # POSTGRESQL - Database for Label Studio (Data Safety)
+  # ==========================================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: labelstudio-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=labelstudio
+      - POSTGRES_USER=labelstudio
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-labelstudio_secure_password}
+    volumes:
+      # CRITICAL: Database data stored in persistent volume
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labelstudio -d labelstudio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - audio-analysis-network
+
+  # ==========================================================================
+  # ML BACKEND - Audio Analysis Prediction API
+  # ==========================================================================
   labelstudio-audio-api:
     image: labelstudio-audio-api:latest
     container_name: labelstudio-audio-api
@@ -27,8 +97,11 @@ services:
     volumes:
       # Persistent storage for logs
       - ./logs:/var/log/app
-      # Temporary files (can be tmpfs for better performance)
+      # Persistent storage for audio files and data
+      - audio_data:/app/data
       - audio_temp:/tmp/audio_analysis
+      # Share files with Label Studio
+      - labelstudio_files:/label-studio/files:ro
       
     tmpfs:
       # Use tmpfs for temporary audio processing (optional, for performance)
@@ -102,6 +175,43 @@ services:
       - audio-analysis-network
     profiles:
       - with-grafana
+      
+  # ==========================================================================
+  # AUTOMATED BACKUP SERVICE - Protects ALL your data
+  # ==========================================================================
+  backup-service:
+    image: alpine:latest
+    container_name: labelstudio-backup
+    restart: unless-stopped
+    user: root
+    volumes:
+      # CRITICAL DATA - Label Studio & PostgreSQL
+      - labelstudio_data:/data/labelstudio_data:ro
+      - labelstudio_files:/data/labelstudio_files:ro
+      - postgres_data:/data/postgres_data:ro
+      # ML Backend data
+      - audio_data:/data/audio_data:ro
+      - redis_data:/data/redis_data:ro
+      - prometheus_data:/data/prometheus_data:ro
+      - grafana_data:/data/grafana_data:ro
+      # Logs
+      - ./logs:/data/logs:ro
+      # Backup destination
+      - backup_data:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    environment:
+      - TZ=UTC
+      - BACKUP_RETENTION_DAYS=3
+    command: >
+      sh -c "apk add --no-cache zip tzdata busybox-suid &&
+             echo '0 0 * * * /backup.sh >> /backups/backup.log 2>&1' > /etc/crontabs/root &&
+             chmod 600 /etc/crontabs/root &&
+             crond -f -l 2"
+    depends_on:
+      - postgres
+      - label-studio
+    networks:
+      - audio-analysis-network
 
 networks:
   audio-analysis-network:
@@ -109,9 +219,24 @@ networks:
     name: audio-analysis-network
 
 volumes:
+  # CRITICAL - Label Studio Data
+  labelstudio_data:
+    driver: local
+    name: labelstudio-data
+  labelstudio_files:
+    driver: local
+    name: labelstudio-files
+  postgres_data:
+    driver: local
+    name: labelstudio-postgres-data
+  # ML Backend Data
+  audio_data:
+    driver: local
+    name: audio-analysis-data
   audio_temp:
     driver: local
     name: audio-analysis-temp
+  # Optional Services Data
   prometheus_data:
     driver: local
     name: audio-analysis-prometheus
@@ -121,3 +246,7 @@ volumes:
   grafana_data:
     driver: local
     name: audio-analysis-grafana
+  # Backup Storage
+  backup_data:
+    driver: local
+    name: audio-analysis-backups
