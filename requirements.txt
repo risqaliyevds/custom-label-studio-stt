@@ -1,0 +1,28 @@
+# Core FastAPI dependencies (Python 3.13 compatible)
+fastapi>=0.108.0
+uvicorn[standard]>=0.25.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+
+# HTTP client for audio downloading
+httpx>=0.26.0
+aiofiles>=24.0.0
+
+# Gemini AI integration (latest stable)
+google-generativeai>=0.4.0
+
+# Audio processing utilities (simplified for prediction only)
+mutagen>=1.47.0
+# librosa removed - not needed for prediction-only API
+
+# Essential utilities
+python-multipart>=0.0.6
+python-json-logger>=2.0.7
+tenacity>=8.2.3
+prometheus-client>=0.20.0
+
+# Optional development dependencies (comment out if not needed)
+# pytest>=8.0.0
+# pytest-asyncio>=0.23.0
+# black>=24.0.0
+# isort>=5.13.0
