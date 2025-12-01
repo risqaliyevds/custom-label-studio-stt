@@ -1,0 +1,177 @@
+<View>
+  <!-- Main Audio Player with Enhanced Controls -->
+  <Audio name="audio" value="$audio" 
+         hotkey="space" 
+         zoom="true" 
+         speed="true"
+         volume="true"
+         cursorVisibility="true"
+         cursorWidth="2"/>
+  
+  <!-- Section 1: Speaker Diarization & Basic Segmentation -->
+  <View style="margin-top: 20px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="🎤 Speaker Diarization &amp; Segmentation"/>
+    <Labels name="speaker_labels" toName="audio" zoom="true" hotkey="ctrl+1">
+      <Label value="Speaker 1" background="#FF6B6B" hotkey="1"/>
+      <Label value="Speaker 2" background="#4ECDC4" hotkey="2"/>
+      <Label value="Speaker 3" background="#45B7D1" hotkey="3"/>
+      <Label value="Speaker 4" background="#96CEB4" hotkey="4"/>
+      <Label value="Speaker 5" background="#FFEAA7" hotkey="5"/>
+      <Label value="Unknown Speaker" background="#DDA0DD" hotkey="6"/>
+      <Label value="Multiple Speakers" background="#F0A500" hotkey="7"/>
+    </Labels>
+  </View>
+
+  <!-- Hidden: Audio Type (for backward compatibility) -->
+  <View style="display:none;">
+    <Labels name="audio_type" toName="audio">
+      <Label value="Speech" background="#90EE90"/>
+      <Label value="Music" background="#FFB6C1"/>
+      <Label value="Noise" background="#D3D3D3"/>
+      <Label value="Silence" background="#F5F5F5"/>
+      <Label value="Applause" background="#FFA500"/>
+      <Label value="Laughter" background="#FFD700"/>
+    </Labels>
+  </View>
+
+  <!-- Section 2: Transcription (Per Speaker Region Only) -->
+  <View style="margin-top: 15px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="📝 Transcription"/>
+    <TextArea name="transcription" toName="audio"
+              rows="4" 
+              editable="true" 
+              perRegion="true" 
+              whenTagName="speaker_labels"
+              whenLabelValue="Speaker 1,Speaker 2,Speaker 3,Speaker 4,Speaker 5,Unknown Speaker,Multiple Speakers"
+              placeholder="Select a speaker region to enter transcription..."
+              showSubmitButton="false"
+              maxSubmissions="1"/>
+  </View>
+
+  <!-- Section 3: Language Detection (Per Speaker Region Only) -->
+  <View style="margin-top: 15px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="🌐 Language Detection"/>
+    <Choices name="language" toName="audio" 
+             choice="single" 
+             perRegion="true" 
+             whenTagName="speaker_labels"
+             whenLabelValue="Speaker 1,Speaker 2,Speaker 3,Speaker 4,Speaker 5,Unknown Speaker,Multiple Speakers"
+             showInline="true">
+      <Choice value="English" hotkey="e"/>
+      <Choice value="Spanish" hotkey="es"/>
+      <Choice value="French" hotkey="f"/>
+      <Choice value="German" hotkey="g"/>
+      <Choice value="Italian" hotkey="i"/>
+      <Choice value="Portuguese" hotkey="p"/>
+      <Choice value="Russian" hotkey="r"/>
+      <Choice value="Chinese" hotkey="c"/>
+      <Choice value="Japanese" hotkey="j"/>
+      <Choice value="Korean" hotkey="k"/>
+      <Choice value="Arabic" hotkey="ar"/>
+      <Choice value="Hindi" hotkey="h"/>
+      <Choice value="Other" hotkey="o"/>
+      <Choice value="Mixed Languages" hotkey="x"/>
+    </Choices>
+  </View>
+
+  <!-- Section 4: Gender Identification (Per Speaker Region Only) -->
+  <View style="margin-top: 15px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="👤 Gender Identification"/>
+    <Choices name="gender" toName="audio" 
+             choice="single" 
+             perRegion="true" 
+             whenTagName="speaker_labels"
+             whenLabelValue="Speaker 1,Speaker 2,Speaker 3,Speaker 4,Speaker 5,Unknown Speaker,Multiple Speakers"
+             showInline="true">
+      <Choice value="Male" hotkey="M"/>
+      <Choice value="Female" hotkey="F"/>
+      <Choice value="Non-binary" hotkey="N"/>
+      <Choice value="Unknown" hotkey="U"/>
+      <Choice value="Child" hotkey="C"/>
+    </Choices>
+  </View>
+
+  <!-- Section 5: Emotion Analysis (Per Speaker Region Only) -->
+  <View style="margin-top: 15px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="😊 Emotion Analysis"/>
+    <Choices name="emotion" toName="audio" 
+             choice="single" 
+             perRegion="true" 
+             whenTagName="speaker_labels"
+             whenLabelValue="Speaker 1,Speaker 2,Speaker 3,Speaker 4,Speaker 5,Unknown Speaker,Multiple Speakers"
+             showInline="true">
+      <Choice value="Happy" html="&lt;span style='font-size: 20px;'&gt;😊 Happy&lt;/span&gt;"/>
+      <Choice value="Sad" html="&lt;span style='font-size: 20px;'&gt;😢 Sad&lt;/span&gt;"/>
+      <Choice value="Angry" html="&lt;span style='font-size: 20px;'&gt;😠 Angry&lt;/span&gt;"/>
+      <Choice value="Surprised" html="&lt;span style='font-size: 20px;'&gt;😲 Surprised&lt;/span&gt;"/>
+      <Choice value="Fearful" html="&lt;span style='font-size: 20px;'&gt;😨 Fearful&lt;/span&gt;"/>
+      <Choice value="Disgusted" html="&lt;span style='font-size: 20px;'&gt;🤢 Disgusted&lt;/span&gt;"/>
+      <Choice value="Neutral" html="&lt;span style='font-size: 20px;'&gt;😐 Neutral&lt;/span&gt;"/>
+      <Choice value="Excited" html="&lt;span style='font-size: 20px;'&gt;🤩 Excited&lt;/span&gt;"/>
+      <Choice value="Confused" html="&lt;span style='font-size: 20px;'&gt;😕 Confused&lt;/span&gt;"/>
+      <Choice value="Frustrated" html="&lt;span style='font-size: 20px;'&gt;😤 Frustrated&lt;/span&gt;"/>
+    </Choices>
+  </View>
+
+  <!-- Section 6: Named Entity Recognition (Per Speaker Region - Applied to Transcription) -->
+  <View style="margin-top: 15px; border: 2px solid #e0e0e0; padding: 15px; border-radius: 8px;">
+    <Header value="🏷 Named Entity Recognition"/>
+    <Labels name="ner_labels" toName="transcription" 
+            hotkey="ctrl+3">
+      <Label value="PERSON" background="#FFB6C1" hotkey="shift+p"/>
+      <Label value="ORGANIZATION" background="#98FB98" hotkey="shift+o"/>
+      <Label value="LOCATION" background="#87CEEB" hotkey="shift+l"/>
+      <Label value="DATE" background="#DDA0DD" hotkey="shift+d"/>
+      <Label value="TIME" background="#F0E68C" hotkey="shift+t"/>
+      <Label value="MONEY" background="#FFA500" hotkey="shift+m"/>
+      <Label value="PRODUCT" background="#FF7F50" hotkey="shift+r"/>
+      <Label value="EVENT" background="#9370DB" hotkey="shift+e"/>
+      <Label value="PHONE" background="#20B2AA" hotkey="shift+h"/>
+      <Label value="EMAIL" background="#CD853F" hotkey="shift+i"/>
+    </Labels>
+  </View>
+
+  <!-- Section 7: Global Annotation Summary (Always Available) -->
+  <View style="margin-top: 15px; border: 2px solid #4CAF50; padding: 15px; border-radius: 8px; background-color: #f0fff0;">
+    <Header value="📋 Global Summary"/>
+    <TextArea name="summary" 
+              toName="audio"
+              rows="3" 
+              editable="true" 
+              perRegion="false"
+              placeholder="Enter overall summary, key points, or general observations about the entire audio..."
+              showSubmitButton="false"
+              maxSubmissions="1"/>
+  </View>
+
+  <!-- Hidden fields for backward compatibility with existing annotations -->
+  <View style="display:none;">
+    <Choices name="intent" toName="audio" choice="single" perRegion="true">
+      <Choice value="Question"/>
+      <Choice value="Request"/>
+      <Choice value="Command"/>
+      <Choice value="Information"/>
+      <Choice value="Complaint"/>
+      <Choice value="Compliment"/>
+      <Choice value="Agreement"/>
+      <Choice value="Disagreement"/>
+      <Choice value="Greeting"/>
+      <Choice value="Farewell"/>
+    </Choices>
+    
+    <Choices name="conversation_type" toName="audio" choice="single">
+      <Choice value="Interview"/>
+      <Choice value="Meeting"/>
+      <Choice value="Phone Call"/>
+      <Choice value="Presentation"/>
+      <Choice value="Lecture"/>
+      <Choice value="Conversation"/>
+      <Choice value="Monologue"/>
+      <Choice value="Debate"/>
+      <Choice value="News"/>
+      <Choice value="Other"/>
+    </Choices>
+    
+    <Number name="speaker_count" toName="audio" min="1" max="10" defaultValue="2" step="1"/>
+  </View>
+</View>

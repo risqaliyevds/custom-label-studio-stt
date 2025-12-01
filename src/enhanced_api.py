@@ -219,78 +219,155 @@ async def get_access_token():
 
 async def download_audio(url: str) -> str:
     """Download audio file from URL or handle local file"""
+    import re
+    import glob
+    import urllib.parse
+
+    print(f"[download_audio] Processing URL: {url}")
+
     try:
-        # First check if it's just a filename (like test.mp3)
+        # Label Studio media storage location
+        LABEL_STUDIO_MEDIA_ROOT = os.path.expanduser("~/.local/share/label-studio/media")
+
+        # Handle blob URLs - these can't be downloaded server-side
+        if url.startswith("blob:"):
+            raise HTTPException(
+                status_code=400,
+                detail="Blob URLs cannot be processed server-side. Please use a direct file URL."
+            )
+
+        # First check if it's an absolute path that already exists
+        if url.startswith("/") and os.path.exists(url):
+            print(f"[download_audio] Found absolute path: {url}")
+            return url
+
+        # Check for Label Studio data URLs - map to local filesystem
+        # Formats: /data/upload/{project_id}/{filename}, /data/local-files/?d=path
+        # Also handles full URLs like http://localhost:8080/data/upload/...
+
+        # Pattern 1: /data/upload/{project_id}/{filename}
+        data_upload_match = re.search(r'/data/upload/(\d+)/(.+?)(?:\?|$)', url)
+        if data_upload_match:
+            project_id = data_upload_match.group(1)
+            filename = urllib.parse.unquote(data_upload_match.group(2))
+            local_path = os.path.join(LABEL_STUDIO_MEDIA_ROOT, "upload", project_id, filename)
+            print(f"[download_audio] Trying upload path: {local_path}")
+            if os.path.exists(local_path):
+                print(f"[download_audio] Found Label Studio media file: {local_path}")
+                return local_path
+            # Try to find by partial filename match
+            search_pattern = os.path.join(LABEL_STUDIO_MEDIA_ROOT, "upload", project_id, f"*{filename.split('/')[-1]}*")
+            matches = glob.glob(search_pattern)
+            if matches:
+                print(f"[download_audio] Found by pattern match: {matches[0]}")
+                return matches[0]
+
+        # Pattern 2: /data/local-files/?d=path
+        local_files_match = re.search(r'/data/local-files/\?d=(.+?)(?:&|$)', url)
+        if local_files_match:
+            file_path = urllib.parse.unquote(local_files_match.group(1))
+            print(f"[download_audio] Trying local-files path: {file_path}")
+            if os.path.exists(file_path):
+                return file_path
+
+        # Pattern 3: Extract filename and search in all upload directories
+        filename_match = re.search(r'([^/]+\.(?:mp3|wav|ogg|flac|m4a))(?:\?|$)', url, re.IGNORECASE)
+        if filename_match:
+            filename = urllib.parse.unquote(filename_match.group(1))
+            print(f"[download_audio] Searching for filename: {filename}")
+            # Search in all project upload directories
+            for project_dir in glob.glob(os.path.join(LABEL_STUDIO_MEDIA_ROOT, "upload", "*")):
+                search_path = os.path.join(project_dir, f"*{filename}*")
+                matches = glob.glob(search_path)
+                if matches:
+                    print(f"[download_audio] Found file by name search: {matches[0]}")
+                    return matches[0]
+                # Also try exact match
+                exact_path = os.path.join(project_dir, filename)
+                if os.path.exists(exact_path):
+                    print(f"[download_audio] Found exact match: {exact_path}")
+                    return exact_path
+
+        # Check if it's just a filename (like test.mp3)
         if not url.startswith(("http://", "https://", "file://", "/")):
-            # It's likely just a filename, check in the current directory
             local_path = f"/mnt/mata/labelStudio/{url}"
             if os.path.exists(local_path):
-                print(f"Found local file at: {local_path}")
+                print(f"[download_audio] Found local file at: {local_path}")
                 return local_path
-        
-        # Check if it's a local file reference
+
+        # Check if it's a local file reference starting with /
         if url.startswith("/") and not url.startswith(("http://", "https://")):
-            # Try to find local file
-            if url == "/test.mp3":
-                local_path = "/mnt/mata/labelStudio/test.mp3"
-                if os.path.exists(local_path):
-                    print(f"Found test file at: {local_path}")
-                    return local_path
-            local_path = f"/mnt/mata/labelStudio{url}"
-            if os.path.exists(local_path):
-                print(f"Found local file at: {local_path}")
-                return local_path
-            # Also check without the leading slash
-            local_path = f"/mnt/mata/labelStudio/{url.lstrip('/')}"
-            if os.path.exists(local_path):
-                print(f"Found local file at: {local_path}")
-                return local_path
-        
+            # Try various path combinations
+            paths_to_try = [
+                url,
+                f"/mnt/mata/labelStudio{url}",
+                f"/mnt/mata/labelStudio/{url.lstrip('/')}",
+            ]
+            for path in paths_to_try:
+                if os.path.exists(path):
+                    print(f"[download_audio] Found local file at: {path}")
+                    return path
+
         # Check if it's file:// URL
         if url.startswith("file://"):
             local_path = url[7:]  # Remove 'file://' prefix
             if os.path.exists(local_path):
-                print(f"Found file:// at: {local_path}")
+                print(f"[download_audio] Found file:// at: {local_path}")
                 return local_path
-        
+
+        # Last resort: Try to download from URL
+        print(f"[download_audio] Attempting HTTP download for: {url}")
+
         # Create temporary file for download
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         temp_path = temp_file.name
         temp_file.close()
-        
+
         # Construct full URL if needed
+        download_url = url
         if not url.startswith(("http://", "https://")):
             if url.startswith("/"):
-                url = f"{LABEL_STUDIO_URL}{url}"
+                download_url = f"{LABEL_STUDIO_URL}{url}"
             else:
-                url = f"{LABEL_STUDIO_URL}/data/{url}"
-        
-        # Download file
-        async with httpx.AsyncClient() as client:
+                download_url = f"{LABEL_STUDIO_URL}/data/{url}"
+
+        print(f"[download_audio] Download URL: {download_url}")
+
+        # Download file with retries
+        async with httpx.AsyncClient(timeout=60.0) as client:
             headers = {}
-            
+
             # Get access token (handles refresh if needed)
             token = await get_access_token()
             if token:
-                # Use Bearer for JWT tokens, Token for legacy tokens
                 if token.startswith("eyJ"):
                     headers["Authorization"] = f"Bearer {token}"
-                    print(f"Using Bearer auth with token: {token[:20]}...")
                 else:
                     headers["Authorization"] = f"Token {token}"
-                    print(f"Using Token auth with token: {token[:20]}...")
-            
-            response = await client.get(url, headers=headers, timeout=30.0)
-            response.raise_for_status()
-            
-            # Save to temp file
-            with open(temp_path, "wb") as f:
-                f.write(response.content)
-        
-        return temp_path
-        
+
+            try:
+                response = await client.get(download_url, headers=headers, follow_redirects=True)
+                response.raise_for_status()
+
+                with open(temp_path, "wb") as f:
+                    f.write(response.content)
+
+                print(f"[download_audio] Downloaded to: {temp_path}")
+                return temp_path
+
+            except httpx.HTTPStatusError as e:
+                print(f"[download_audio] HTTP error {e.response.status_code}: {e}")
+                os.unlink(temp_path)
+                raise
+            except Exception as e:
+                print(f"[download_audio] Download error: {e}")
+                os.unlink(temp_path)
+                raise
+
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error downloading audio: {str(e)}")
+        print(f"[download_audio] Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to download audio: {str(e)}")
 
 
@@ -655,6 +732,189 @@ async def predict(request: Dict[str, Any]):
 async def train(request: Dict[str, Any]):
     """Training endpoint (not implemented)"""
     return {"status": "Training not supported"}
+
+
+# Pydantic models for segment transcription
+class SegmentTranscribeRequest(BaseModel):
+    audio_url: str
+    start_time: float
+    end_time: float
+    task_id: int = 0
+    project_id: int = 0
+
+
+class SegmentTranscribeResponse(BaseModel):
+    transcription: str
+    language: str
+    gender: str
+    emotion: str
+    confidence: float
+
+
+SEGMENT_TRANSCRIBE_PROMPT = """
+Analyze this audio segment and provide a detailed transcription.
+
+REQUIREMENTS:
+1. Transcribe EXACTLY what is said, word for word
+2. Use the CORRECT script for the language:
+   - Uzbek: Latin script with apostrophes (o', g', ng) - e.g., "O'zbekiston", "yaxshi"
+   - Russian: Cyrillic script - e.g., "привет", "хорошо"
+   - English: Latin script
+   - Arabic: Arabic script
+   - Turkish: Latin with Turkish characters (ğ, ş, ı, ö, ü, ç)
+3. Include hesitations (um, uh, er) and repetitions
+4. Detect the primary language
+5. Identify speaker gender (Male/Female/Unknown)
+6. Detect emotion (Neutral/Happy/Sad/Angry/Surprised/Fearful/Excited/Calm/Frustrated)
+
+Return ONLY valid JSON in this format:
+{
+    "transcription": "Exact transcription text in appropriate script",
+    "language": "Uzbek",
+    "gender": "Male",
+    "emotion": "Neutral",
+    "confidence": 0.95
+}
+"""
+
+
+async def extract_audio_segment(audio_path: str, start_time: float, end_time: float) -> str:
+    """Extract a segment from audio file using ffmpeg"""
+    import subprocess
+
+    # Create temp file for segment
+    segment_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
+
+    duration = end_time - start_time
+
+    # Use ffmpeg to extract segment
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", audio_path,
+        "-ss", str(start_time),
+        "-t", str(duration),
+        "-acodec", "libmp3lame",
+        "-ar", "16000",
+        "-ac", "1",
+        segment_path
+    ]
+
+    try:
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=30
+        )
+        if process.returncode != 0:
+            print(f"FFmpeg error: {process.stderr.decode()}")
+            raise Exception(f"FFmpeg failed: {process.stderr.decode()}")
+
+        return segment_path
+    except subprocess.TimeoutExpired:
+        raise Exception("FFmpeg timeout")
+    except Exception as e:
+        if os.path.exists(segment_path):
+            os.unlink(segment_path)
+        raise e
+
+
+def transcribe_segment_with_gemini(audio_path: str) -> Dict[str, Any]:
+    """Transcribe a single audio segment using Gemini"""
+    try:
+        model = init_gemini()
+
+        # Upload audio file
+        audio_file = genai.upload_file(audio_path, mime_type="audio/mpeg")
+
+        # Generate transcription
+        response = model.generate_content([
+            SEGMENT_TRANSCRIBE_PROMPT,
+            audio_file
+        ])
+
+        if not response.parts:
+            return {
+                "transcription": "[Could not transcribe]",
+                "language": "Unknown",
+                "gender": "Unknown",
+                "emotion": "Neutral",
+                "confidence": 0.0
+            }
+
+        text = response.text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+
+        result = json.loads(text)
+        return result
+
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error in segment transcription: {e}")
+        return {
+            "transcription": "[Transcription error]",
+            "language": "Unknown",
+            "gender": "Unknown",
+            "emotion": "Neutral",
+            "confidence": 0.0
+        }
+    except Exception as e:
+        print(f"Segment transcription error: {e}")
+        return {
+            "transcription": f"[Error: {str(e)}]",
+            "language": "Unknown",
+            "gender": "Unknown",
+            "emotion": "Neutral",
+            "confidence": 0.0
+        }
+
+
+@app.post("/transcribe-segment", response_model=SegmentTranscribeResponse)
+async def transcribe_segment(request: SegmentTranscribeRequest):
+    """
+    Transcribe a specific audio segment using Gemini.
+    Used for on-demand transcription when user selects a region.
+    """
+    print(f"Transcribe segment request: {request.audio_url} [{request.start_time:.2f} - {request.end_time:.2f}]")
+
+    audio_path = None
+    segment_path = None
+
+    try:
+        # Download the full audio
+        audio_path = await download_audio(request.audio_url)
+
+        # Extract the segment
+        segment_path = await extract_audio_segment(
+            audio_path,
+            request.start_time,
+            request.end_time
+        )
+
+        # Transcribe with Gemini
+        result = transcribe_segment_with_gemini(segment_path)
+
+        print(f"Transcription result: {result.get('transcription', '')[:100]}...")
+
+        return SegmentTranscribeResponse(
+            transcription=result.get("transcription", ""),
+            language=result.get("language", "Unknown"),
+            gender=result.get("gender", "Unknown"),
+            emotion=result.get("emotion", "Neutral"),
+            confidence=result.get("confidence", 0.0)
+        )
+
+    except Exception as e:
+        print(f"Error in transcribe_segment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        # Cleanup temp files
+        if audio_path and os.path.exists(audio_path) and audio_path.startswith("/tmp"):
+            os.unlink(audio_path)
+        if segment_path and os.path.exists(segment_path):
+            os.unlink(segment_path)
 
 
 if __name__ == "__main__":

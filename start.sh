@@ -328,7 +328,7 @@ main() {
     
     # Step 5: Build if needed
     header "Step 5: Building Docker Image"
-    
+
     if docker images | grep -q "labelstudio-audio-api"; then
         info "Docker image exists"
         read -t 5 -p "Rebuild image? (y/N, 5s timeout): " rebuild || rebuild="n"
@@ -441,7 +441,7 @@ main() {
     echo ""
     echo -e "  🤖 ${GREEN}ML Backend API:${NC}   http://localhost:9090"
     echo -e "  ❤️  Health Check:    http://localhost:9090/health"
-    echo -e "  📊 Metrics:         http://localhost:9091/metrics"
+    echo -e "  📊 API Docs:        http://localhost:9090/docs"
     echo ""
     
     echo -e "${CYAN}========================================${NC}"

@@ -4,122 +4,95 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Label Studio ML Backend for audio analysis using Google's Gemini AI. It provides comprehensive audio analysis including transcription, speaker diarization, emotion detection, and multi-language support. The backend integrates with Label Studio for audio annotation workflows.
+Label Studio ML Backend for audio analysis using Google's Gemini AI. Provides transcription, speaker diarization, emotion detection, and multi-language support (Uzbek Latin, Russian Cyrillic, Arabic, English, Turkish).
 
 ## Commands
 
-### Development Setup
+### Development
 ```bash
-# Create and activate virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# Setup
+python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up environment variables (copy .env.example if available or use existing .env)
-# Ensure GEMINI_API_KEY is set
-```
-
-### Running the Application
-```bash
-# Run enhanced API (recommended - full features)
-source venv/bin/activate
+# Run enhanced API (recommended)
 python src/enhanced_api.py
 
-# Run simple API (minimal implementation)
+# Run simple API (basic features only)
 python src/simple_api.py
+```
 
-# Using Docker
-docker-compose up --build
+### Docker
+```bash
+# Build and start all services
+docker build -t labelstudio-audio-api:latest . && docker compose up -d
+
+# Or use the smart startup script
+./start.sh
+
+# View logs
+docker compose logs -f labelstudio-audio-api
 ```
 
 ### Testing
 ```bash
-# Run Python tests
 python tests/test_enhanced.py
-python tests/test_predict.py
-
-# Run API integration tests
 bash tests/test_api.sh
-
-# Test health endpoint
 curl http://localhost:9090/health
-```
-
-### Linting and Type Checking
-```bash
-# The project doesn't have explicit linting setup yet
-# Consider adding: ruff, black, mypy for Python code quality
 ```
 
 ## Architecture
 
-### Implementation Approaches
+### Two API Implementations
 
-The project provides two implementations:
+**Enhanced API** (`src/enhanced_api.py`): Full-featured with speaker diarization (0.1s precision), multi-language transcription, emotion detection (11 types), gender identification, and Uzbek summaries.
 
-1. **Enhanced API** (`src/enhanced_api.py`):
-   - Advanced speaker diarization with 0.1s precision timing
-   - Multi-language support (Uzbek Latin, Russian Cyrillic, Arabic, English, Turkish)
-   - Emotion detection (11 types: neutral, joy, sadness, anger, fear, surprise, disgust, contempt, confusion, disappointment, frustration)
-   - Gender identification
-   - Comprehensive summaries and key points extraction
-   - Prometheus metrics integration
-   - Structured JSON logging
-
-2. **Simple API** (`src/simple_api.py`):
-   - Basic transcription and language detection
-   - Simple speaker identification
-   - Summary generation
-   - Single-file implementation for easy deployment
-   - Minimal dependencies
+**Simple API** (`src/simple_api.py`): Basic transcription, language detection, and summary generation.
 
 ### Request Flow
 
-1. Label Studio sends POST request to `/predict` with audio file URLs
-2. Backend downloads audio to `/tmp/audio_analysis/` temporary storage
-3. Audio is processed using Google Gemini API with specific prompts for each analysis type
-4. Results are formatted according to Label Studio's prediction format
-5. Temporary files are automatically cleaned up after processing
+1. Label Studio → POST `/predict` with audio URLs
+2. Backend downloads audio (supports local files, URLs, Label Studio paths)
+3. Gemini API analyzes audio with structured prompts
+4. Results formatted as Label Studio predictions
+5. Temp files cleaned up
 
-### Key Components
+### Key Files
 
-- **FastAPI Application**: Async web framework handling API requests
-- **Gemini Integration**: Uses `google.generativeai` for audio analysis
-- **File Management**: Async file operations with automatic cleanup
-- **Error Handling**: Comprehensive error handling with retries using tenacity
-- **Monitoring**: Prometheus metrics for request tracking (enhanced version)
+- `src/enhanced_api.py` - Main API with Gemini analysis logic
+- `docker-compose.yml` - Full stack: Label Studio, PostgreSQL, ML Backend, Backup
+- `start.sh` - Smart startup with automatic backup restoration
+- `template.xml` - Audio transcription labeling template
 
-### Environment Configuration
+### Environment Variables
 
-Required environment variables:
-- `GEMINI_API_KEY`: Google AI Studio API key (required)
-- `GEMINI_MODEL`: Model name (default: "gemini-1.5-flash-8b")
-- `API_HOST`: Server host (default: "0.0.0.0")
-- `API_PORT`: Server port (default: 9090)
-- `LOG_LEVEL`: Logging level (default: "INFO")
+Required in `.env`:
+- `GEMINI_API_KEY` - Google AI API key (required)
+- `GEMINI_MODEL` - Model name (default: "gemini-2.0-flash")
+- `LABEL_STUDIO_API_KEY` - For downloading audio from Label Studio
 
-### Label Studio Integration
+Optional:
+- `PORT` / `HOST` - API server (default: 9090 / 0.0.0.0)
+- `LABEL_STUDIO_URL` - Label Studio instance (default: http://localhost:8080)
 
-The backend follows Label Studio ML backend specification:
-- `/setup` endpoint for initialization
-- `/predict` endpoint for generating predictions
-- Returns predictions in Label Studio's expected format with proper task IDs
-- Supports both URL-based and direct file upload
+### Docker Stack Services
 
-### Docker Deployment
+- `label-studio` (port 8080) - Main annotation platform
+- `postgres` - PostgreSQL database for Label Studio
+- `labelstudio-audio-api` (port 9090) - This ML backend
+- `backup-service` - Daily automated backups at 00:00 UTC
 
-The project includes:
-- Multi-stage Dockerfile with non-root user for security
-- docker-compose.yml with complete service configuration
-- Health checks and restart policies
-- Volume mounting for logs persistence
+### Backup & Restore
+
+```bash
+# Manual backup
+docker exec labelstudio-backup /backup.sh
+
+# Restore from backup
+./scripts/restore_backup.sh YYYY-MM-DD
+```
 
 ## Important Notes
 
-- The `scripts/start_api.sh` references a non-existent `main.py` - use `src/enhanced_api.py` instead
-- Temporary audio files are stored in `/tmp/audio_analysis/` and cleaned up automatically
-- The project uses async/await patterns throughout for better performance
-- Error responses include detailed messages for debugging
-- The enhanced API provides more detailed analysis but may have higher latency
+- Audio files downloaded to `/tmp/audio_analysis/` are auto-cleaned after processing
+- Gemini safety filters may block content; fallback responses are returned in such cases
+- The enhanced API uses retry logic (3 attempts) for Gemini API failures
+- Summaries are always generated in Uzbek Latin script
