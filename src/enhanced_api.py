@@ -236,6 +236,10 @@ async def download_audio(url: str) -> str:
                 detail="Blob URLs cannot be processed server-side. Please use a direct file URL."
             )
 
+        # Strip http://localhost:PORT prefix if present - convert to relative path
+        url = re.sub(r'^https?://[^/]+', '', url)
+        print(f"[download_audio] Normalized URL: {url}")
+
         # First check if it's an absolute path that already exists
         if url.startswith("/") and os.path.exists(url):
             print(f"[download_audio] Found absolute path: {url}")
@@ -243,7 +247,6 @@ async def download_audio(url: str) -> str:
 
         # Check for Label Studio data URLs - map to local filesystem
         # Formats: /data/upload/{project_id}/{filename}, /data/local-files/?d=path
-        # Also handles full URLs like http://localhost:8080/data/upload/...
 
         # Pattern 1: /data/upload/{project_id}/{filename}
         data_upload_match = re.search(r'/data/upload/(\d+)/(.+?)(?:\?|$)', url)
